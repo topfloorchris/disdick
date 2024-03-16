@@ -1370,6 +1370,7 @@ class VoiceChannel(VocalGuildChannel):
         video_quality_mode: VideoQualityMode = ...,
         slowmode_delay: int = ...,
         reason: Optional[str] = ...,
+        status: Optional[str] = ...,
     ) -> VoiceChannel:
         ...
 
@@ -1428,6 +1429,10 @@ class VoiceChannel(VocalGuildChannel):
             The camera video quality for the voice channel's participants.
 
             .. versionadded:: 2.0
+        status: Optional[:class:`str`]
+            The new voice channel status. It can be up to 500 characters.
+            Can be ``None`` to remove the status.
+            .. versionadded:: 2.4
 
         Raises
         ------

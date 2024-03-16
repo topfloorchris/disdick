@@ -1266,6 +1266,13 @@ class HTTPClient:
         payload = {k: v for k, v in options.items() if k in valid_keys}
         return self.request(r, reason=reason, json=payload)
 
+    def edit_voice_channel_status(
+        self, status: Optional[str], *, channel_id: int, reason: Optional[str] = None
+    ) -> Response[None]:
+        r = Route('PUT', '/channels/{channel_id}/voice-status', channel_id=channel_id)
+        payload = {'status': status}
+        return self.request(r, reason=reason, json=payload)
+    
     def bulk_channel_update(
         self,
         guild_id: Snowflake,
@@ -2497,6 +2504,23 @@ class HTTPClient:
     def application_info(self) -> Response[appinfo.AppInfo]:
         return self.request(Route('GET', '/oauth2/applications/@me'))
 
+
+    def edit_application_info(self, *, reason: Optional[str], payload: Any) -> Response[appinfo.AppInfo]:
+        valid_keys = (
+            'custom_install_url',
+            'description',
+            'role_connections_verification_url',
+            'install_params',
+            'flags',
+            'icon',
+            'cover_image',
+            'interactions_endpoint_url ',
+            'tags',
+        )
+
+        payload = {k: v for k, v in payload.items() if k in valid_keys}
+        return self.request(Route('PATCH', '/applications/@me'), json=payload, reason=reason)
+    
     async def get_gateway(self, *, encoding: str = 'json', zlib: bool = True) -> str:
         try:
             data = await self.request(Route('GET', '/gateway'))
