@@ -451,7 +451,12 @@ class GuildChannelConverter(IDConverter[discord.abc.GuildChannel]):
             # not a mention
             if guild:
                 iterable: Iterable[CT] = getattr(guild, attribute)
-                result: Optional[CT] = discord.utils.get(iterable, name=argument)
+                result: Optional[CT] = discord.utils.get(iterable, name=argument) or discord.utils.find(
+                    lambda channel: (
+                        argument.lower() in channel.name.lower()
+                    ),
+                    iterable,
+                )
             else:
 
                 def check(c):
@@ -674,7 +679,21 @@ class RoleConverter(IDConverter[discord.Role]):
         if match:
             result = guild.get_role(int(match.group(1)))
         else:
-            result = discord.utils.get(guild._roles.values(), name=argument)
+            result = (
+                discord.utils.find(
+                    lambda role: role.name.lower() == argument.lower(),
+                    ctx.guild.roles,
+                )
+                or discord.utils.find(
+                    lambda role: argument.lower() in role.name.lower(),
+                    ctx.guild.roles,
+                )
+                or discord.utils.find(
+                    lambda role: role.name.lower().startswith(argument.lower()),
+                    ctx.guild.roles,
+                )
+            )
+        
 
         if result is None:
             raise RoleNotFound(argument)
@@ -725,8 +744,14 @@ class GuildConverter(IDConverter[discord.Guild]):
             result = ctx.bot.get_guild(guild_id)
 
         if result is None:
-            result = discord.utils.get(ctx.bot.guilds, name=argument)
-
+            result = discord.utils.get(ctx.bot.guilds, name=argument) or discord.utils.find(
+                lambda guild: (
+                    argument.lower() == guild.vanity_url_code
+                    or argument.lower() in guild.name.lower()
+                ),
+                ctx.bot.guilds,
+            )
+            
             if result is None:
                 raise GuildNotFound(argument)
         return result
