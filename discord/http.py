@@ -892,6 +892,9 @@ class HTTPClient:
 
         return data
 
+    def edit_incident_actions(self, guild_id: Snowflake, payload: guild.IncidentData) -> Response[guild.IncidentData]:
+        return self.request(Route('PUT', '/guilds/{guild_id}/incident-actions', guild_id=guild_id), json=payload)
+
     def logout(self) -> Response[None]:
         return self.request(Route('POST', '/auth/logout'))
 
@@ -1151,6 +1154,20 @@ class HTTPClient:
     def unban(self, user_id: Snowflake, guild_id: Snowflake, *, reason: Optional[str] = None) -> Response[None]:
         r = Route('DELETE', '/guilds/{guild_id}/bans/{user_id}', guild_id=guild_id, user_id=user_id)
         return self.request(r, reason=reason)
+
+    def bulk_ban(
+        self,
+        guild_id: Snowflake,
+        user_ids: List[Snowflake],
+        delete_message_seconds: int = 86400,
+        reason: Optional[str] = None,
+    ) -> Response[guild.BulkBanUserResponse]:
+        r = Route('POST', '/guilds/{guild_id}/bulk-ban', guild_id=guild_id)
+        payload = {
+            'user_ids': user_ids,
+            'delete_message_seconds': delete_message_seconds,
+        }
+        return self.request(r, json=payload, reason=reason)
 
     def guild_voice_state(
         self,

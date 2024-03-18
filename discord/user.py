@@ -425,6 +425,11 @@ class ClientUser(BaseUser):
                 payload['avatar'] = _bytes_to_base64_data(avatar)
             else:
                 payload['avatar'] = None
+        if banner is not MISSING:
+            if banner is not None:
+                payload['banner'] = _bytes_to_base64_data(banner)
+            else:
+                payload['banner'] = None
 
         if banner is not MISSING:
             if banner is not None:

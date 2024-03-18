@@ -35,6 +35,7 @@ from typing import (
     Coroutine,
     Dict,
     List,
+    Iterable,
     Mapping,
     NamedTuple,
     Sequence,
@@ -108,6 +109,7 @@ if TYPE_CHECKING:
         Guild as GuildPayload,
         RolePositionUpdate as RolePositionUpdatePayload,
         GuildFeature,
+        IncidentData
     )
     from .types.threads import (
         Thread as ThreadPayload,
@@ -141,6 +143,10 @@ if TYPE_CHECKING:
 class BanEntry(NamedTuple):
     reason: Optional[str]
     user: User
+
+class BulkBanResult(NamedTuple):
+    banned: List[Object]
+    failed: List[Object]
 
 
 class _GuildLimit(NamedTuple):
@@ -311,6 +317,7 @@ class Guild(Hashable):
         '_stage_instances',
         '_scheduled_events',
         '_threads',
+        '_incidents_data',
         'approximate_member_count',
         'approximate_presence_count',
         'premium_progress_bar_enabled',
@@ -477,9 +484,15 @@ class Guild(Hashable):
             role = Role(guild=self, data=r, state=state)
             self._roles[role.id] = role
 
-        self.emojis: Tuple[Emoji, ...] = tuple(map(lambda d: state.store_emoji(self, d), guild.get('emojis', [])))
-        self.stickers: Tuple[GuildSticker, ...] = tuple(
-            map(lambda d: state.store_sticker(self, d), guild.get('stickers', []))
+        self.emojis: Tuple[Emoji, ...] = (
+            tuple(map(lambda d: state.store_emoji(self, d), guild.get('emojis', [])))
+            if state.cache_guild_expressions
+            else ()
+        )
+        self.stickers: Tuple[GuildSticker, ...] = (
+            tuple(map(lambda d: state.store_sticker(self, d), guild.get('stickers', [])))
+            if state.cache_guild_expressions
+            else ()
         )
         self.features: List[GuildFeature] = guild.get('features', [])
         self._splash: Optional[str] = guild.get('splash')
@@ -488,6 +501,7 @@ class Guild(Hashable):
         self.max_presences: Optional[int] = guild.get('max_presences')
         self.max_members: Optional[int] = guild.get('max_members')
         self.max_video_channel_users: Optional[int] = guild.get('max_video_channel_users')
+        self.max_stage_video_users: Optional[int] = guild.get('max_stage_video_channel_users')
         self.premium_tier: int = guild.get('premium_tier', 0)
         self.premium_subscription_count: int = guild.get('premium_subscription_count') or 0
         self.vanity_url_code: Optional[str] = guild.get('vanity_url_code')
@@ -498,62 +512,54 @@ class Guild(Hashable):
         self._discovery_splash: Optional[str] = guild.get('discovery_splash')
         self._rules_channel_id: Optional[int] = utils._get_as_snowflake(guild, 'rules_channel_id')
         self._public_updates_channel_id: Optional[int] = utils._get_as_snowflake(guild, 'public_updates_channel_id')
+        self._safety_alerts_channel_id: Optional[int] = utils._get_as_snowflake(guild, 'safety_alerts_channel_id')
         self.nsfw_level: NSFWLevel = try_enum(NSFWLevel, guild.get('nsfw_level', 0))
         self.mfa_level: MFALevel = try_enum(MFALevel, guild.get('mfa_level', 0))
         self.approximate_presence_count: Optional[int] = guild.get('approximate_presence_count')
         self.approximate_member_count: Optional[int] = guild.get('approximate_member_count')
         self.premium_progress_bar_enabled: bool = guild.get('premium_progress_bar_enabled', False)
         self.owner_id: Optional[int] = utils._get_as_snowflake(guild, 'owner_id')
-
-        self._sync(guild)
         self._large: Optional[bool] = None if self._member_count is None else self._member_count >= 250
+        self._afk_channel_id: Optional[int] = utils._get_as_snowflake(guild, 'afk_channel_id')
+        self._incidents_data: Optional[IncidentData] = guild.get('incidents_data')
 
-        self.afk_channel: Optional[VocalGuildChannel] = self.get_channel(utils._get_as_snowflake(guild, 'afk_channel_id'))  # type: ignore
-
-    # TODO: refactor/remove?
-    def _sync(self, data: GuildPayload) -> None:
-        try:
-            self._large = data['large']
-        except KeyError:
-            pass
-
-        if 'channels' in data:
-            channels = data['channels']
+        if 'channels' in guild:
+            channels = guild['channels']
             for c in channels:
                 factory, ch_type = _guild_channel_factory(c['type'])
                 if factory:
                     self._add_channel(factory(guild=self, data=c, state=self._state))  # type: ignore
 
-        for obj in data.get('voice_states', []):
+        for obj in guild.get('voice_states', []):
             self._update_voice_state(obj, int(obj['channel_id']))
 
         cache_joined = self._state.member_cache_flags.joined
         cache_voice = self._state.member_cache_flags.voice
         self_id = self._state.self_id
-        for mdata in data.get('members', []):
+        for mdata in guild.get('members', []):
             member = Member(data=mdata, guild=self, state=self._state)  # type: ignore # Members will have the 'user' key in this scenario
             if cache_joined or member.id == self_id or (cache_voice and member.id in self._voice_states):
                 self._add_member(member)
 
         empty_tuple = ()
-        for presence in data.get('presences', []):
+        for presence in guild.get('presences', []):
             user_id = int(presence['user']['id'])
             member = self.get_member(user_id)
             if member is not None:
                 member._presence_update(presence, empty_tuple)  # type: ignore
 
-        if 'threads' in data:
-            threads = data['threads']
+        if 'threads' in guild:
+            threads = guild['threads']
             for thread in threads:
                 self._add_thread(Thread(guild=self, state=self._state, data=thread))
 
-        if 'stage_instances' in data:
-            for s in data['stage_instances']:
+        if 'stage_instances' in guild:
+            for s in guild['stage_instances']:
                 stage_instance = StageInstance(guild=self, data=s, state=self._state)
                 self._stage_instances[stage_instance.id] = stage_instance
 
-        if 'guild_scheduled_events' in data:
-            for s in data['guild_scheduled_events']:
+        if 'guild_scheduled_events' in guild:
+            for s in guild['guild_scheduled_events']:
                 scheduled_event = ScheduledEvent(data=s, state=self._state)
                 self._scheduled_events[scheduled_event.id] = scheduled_event
 
@@ -1113,6 +1119,51 @@ class Guild(Hashable):
             )
         
         return utils.find(pred, members)
+
+    async def bulk_ban(
+        self,
+        users: Iterable[Snowflake],
+        *,
+        reason: Optional[str] = None,
+        delete_message_seconds: int = 86400,
+    ) -> BulkBanResult:
+        """|coro|
+        Bans multiple users from the guild.
+        The users must meet the :class:`abc.Snowflake` abc.
+        You must have :attr:`~Permissions.ban_members` to do this.
+        .. versionadded:: 2.4
+        Parameters
+        -----------
+        users: :class:`abc.Snowflake`
+            The user to ban from their guild.
+        delete_message_seconds: :class:`int`
+            The number of seconds worth of messages to delete from the user
+            in the guild. The minimum is 0 and the maximum is 604800 (7 days).
+            Defaults to 1 day.
+        reason: Optional[:class:`str`]
+            The reason the users got banned.
+        Raises
+        -------
+        Forbidden
+            You do not have the proper permissions to ban.
+        HTTPException
+            Banning failed.
+        Returns
+        --------
+        :class:`BulkBanResult`
+            The result of the bulk ban operation.
+        """
+
+        response = await self._state.http.bulk_ban(
+            self.id,
+            user_ids=[u.id for u in users],
+            delete_message_seconds=delete_message_seconds,
+            reason=reason,
+        )
+        return BulkBanResult(
+            banned=[Object(id=int(user_id), type=User) for user_id in response.get('banned_users', []) or []],
+            failed=[Object(id=int(user_id), type=User) for user_id in response.get('failed_users', []) or []],
+        )
 
     @overload
     def _create_channel(
@@ -1830,6 +1881,8 @@ class Guild(Hashable):
         premium_progress_bar_enabled: bool = MISSING,
         discoverable: bool = MISSING,
         invites_disabled: bool = MISSING,
+        invites_disabled_until: datetime.datetime = MISSING,
+        dms_disabled_until: datetime.datetime = MISSING,
         widget_enabled: bool = MISSING,
         widget_channel: Optional[Snowflake] = MISSING,
         mfa_level: MFALevel = MISSING,
@@ -2094,7 +2147,29 @@ class Guild(Hashable):
 
         if premium_progress_bar_enabled is not MISSING:
             fields['premium_progress_bar_enabled'] = premium_progress_bar_enabled
+        incident_actions_payload: IncidentData = {}
+        if invites_disabled_until is not MISSING:
+            if invites_disabled_until is None:
+                incident_actions_payload['invites_disabled_until'] = None
+            else:
+                if invites_disabled_until.tzinfo is None:
+                    raise TypeError(
+                        'invites_disabled_until must be an aware datetime. Consider using discord.utils.utcnow() or datetime.datetime.now().astimezone() for local time.'
+                    )
+                incident_actions_payload['invites_disabled_until'] = invites_disabled_until.isoformat()
 
+        if dms_disabled_until is not MISSING:
+            if dms_disabled_until is None:
+                incident_actions_payload['dms_disabled_until'] = None
+            else:
+                if dms_disabled_until.tzinfo is None:
+                    raise TypeError(
+                        'dms_disabled_until must be an aware datetime. Consider using discord.utils.utcnow() or datetime.datetime.now().astimezone() for local time.'
+                    )
+                incident_actions_payload['dms_disabled_until'] = dms_disabled_until.isoformat()
+
+        if incident_actions_payload:
+            await http.edit_incident_actions(self.id, payload=incident_actions_payload)
         widget_payload: EditWidgetSettings = {}
         if widget_channel is not MISSING:
             widget_payload['channel_id'] = None if widget_channel is None else widget_channel.id
@@ -4207,6 +4282,46 @@ class Guild(Hashable):
         data = await self._state.http.get_auto_moderation_rules(self.id)
 
         return [AutoModRule(data=d, guild=self, state=self._state) for d in data]
+
+    @property
+    def invites_paused_until(self) -> Optional[datetime.datetime]:
+        """Optional[:class:`datetime.datetime`]: If invites are paused, returns when
+        invites will get enabled in UTC, otherwise returns None.
+        .. versionadded:: 2.4
+        """
+        if not self._incidents_data:
+            return None
+
+        return utils.parse_time(self._incidents_data.get('invites_disabled_until'))
+
+    @property
+    def dms_paused_until(self) -> Optional[datetime.datetime]:
+        """Optional[:class:`datetime.datetime`]: If DMs are paused, returns when DMs
+        will get enabled in UTC, otherwise returns None.
+        .. versionadded:: 2.4
+        """
+        if not self._incidents_data:
+            return None
+
+        return utils.parse_time(self._incidents_data.get('dms_disabled_until'))
+
+    def invites_paused(self) -> bool:
+        """:class:`bool`: Whether invites are paused in the guild.
+        .. versionadded:: 2.4
+        """
+        if not self.invites_paused_until:
+            return False
+
+        return self.invites_paused_until > utils.utcnow()
+
+    def dms_paused(self) -> bool:
+        """:class:`bool`: Whether DMs are paused in the guild.
+        .. versionadded:: 2.4
+        """
+        if not self.dms_paused_until:
+            return False
+
+        return self.dms_paused_until > utils.utcnow()
 
     async def create_automod_rule(
         self,
