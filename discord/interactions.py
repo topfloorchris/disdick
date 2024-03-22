@@ -61,6 +61,7 @@ if TYPE_CHECKING:
         Webhook as WebhookPayload,
     )
     from .guild import Guild
+    from .types.snowflake import Snowflake
     from .state import ConnectionState
     from .file import File
     from .mentions import AllowedMentions
@@ -139,6 +140,7 @@ class Interaction(Generic[ClientT]):
         'guild_locale',
         'extras',
         'command_failed',
+        '_integration_owners',
         '_permissions',
         '_app_permissions',
         '_state',
@@ -174,7 +176,10 @@ class Interaction(Generic[ClientT]):
         self.channel_id: Optional[int] = utils._get_as_snowflake(data, 'channel_id')
         self.guild_id: Optional[int] = utils._get_as_snowflake(data, 'guild_id')
         self.application_id: int = int(data['application_id'])
-
+        # This is not entirely useful currently, unsure how to expose it in a way that it is.
+        self._integration_owners: Dict[int, Snowflake] = {
+            int(k): int(v) for k, v in data.get('authorizing_integration_owners', {}).items()
+        }
         self.locale: Locale = try_enum(Locale, data.get('locale', 'en-US'))
         self.guild_locale: Optional[Locale]
         try:
@@ -194,7 +199,11 @@ class Interaction(Generic[ClientT]):
         self._app_permissions: int = int(data.get('app_permissions', 0))
 
         if self.guild_id:
-            guild = self._state._get_or_create_unavailable_guild(self.guild_id)
+            # The data type is a TypedDict but it doesn't narrow to Dict[str, Any] properly
+            guild = self._state._get_or_create_unavailable_guild(self.guild_id, data=data.get('guild'))  # type: ignore
+            if guild.me is None and self._client.user is not None:
+                guild._add_member(Member._from_client_user(user=self._client.user, guild=guild, state=self._state))
+
 
             # Upgrade Message.guild in case it's missing with partial guild data
             if self.message is not None and self.message.guild is None:
