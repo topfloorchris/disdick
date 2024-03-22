@@ -2882,17 +2882,20 @@ class DMChannel(discord.abc.Messageable, discord.abc.PrivateChannel, Hashable):
         The user you are participating with in the direct message channel.
         If this channel is received through the gateway, the recipient information
         may not be always available.
+    recipients: List[:class:`User`]
+        The users you are participating with in the DM channel.
+        .. versionadded:: 2.4
     me: :class:`ClientUser`
         The user presenting yourself.
     id: :class:`int`
         The direct message channel ID.
     """
 
-    __slots__ = ('id', 'recipient', 'me', '_state')
-
+    __slots__ = ('id', 'recipients', 'me', '_state')
+    
     def __init__(self, *, me: ClientUser, state: ConnectionState, data: DMChannelPayload):
         self._state: ConnectionState = state
-        self.recipient: Optional[User] = state.store_user(data['recipients'][0])
+        self.recipients: List[User] = [state.store_user(u) for u in data.get('recipients', [])]
         self.me: ClientUser = me
         self.id: int = int(data['id'])
 
@@ -2912,10 +2915,16 @@ class DMChannel(discord.abc.Messageable, discord.abc.PrivateChannel, Hashable):
         self = cls.__new__(cls)
         self._state = state
         self.id = channel_id
-        self.recipient = None
+        self.recipients = []
         # state.user won't be None here
         self.me = state.user  # type: ignore
         return self
+
+    @property
+    def recipient(self) -> Optional[User]:
+        if self.recipients:
+            return self.recipients[0]
+        return None
 
     @property
     def type(self) -> Literal[ChannelType.private]:
