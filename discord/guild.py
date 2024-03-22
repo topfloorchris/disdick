@@ -315,12 +315,15 @@ class Guild(Hashable):
         '_rules_channel_id',
         '_public_updates_channel_id',
         '_stage_instances',
+        '_safety_alerts_channel_id',
         '_scheduled_events',
         '_threads',
+        'max_stage_video_users',
         '_incidents_data',
         'approximate_member_count',
         'approximate_presence_count',
         'premium_progress_bar_enabled',
+        '_afk_channel_id',
     )
 
     _PREMIUM_GUILD_LIMITS: ClassVar[Dict[Optional[int], _GuildLimit]] = {
